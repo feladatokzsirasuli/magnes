@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>Mágneses Taszítás - Profi Verzió</title>
+    <!-- Firebase könyvtárak tiszta betöltése -->
+     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    
+    <style>
+        body { margin: 0; background: #111; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        #game-container { position: relative; width: 600px; height: 600px; }
+        canvas { border: 4px solid #444; background: #222; box-shadow: 0 0 20px rgba(0,0,0,0.5); cursor: crosshair; }
+        #info { margin-bottom: 10px; font-size: 20px; font-weight: bold; text-align: center; width: 600px; }
+        #startScreen { position: absolute; top: 4px; left: 4px; width: 600px; height: 600px; background: rgba(15, 15, 15, 0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; box-sizing: border-box; z-index: 10; }
+        h1 { color: #ff4757; margin-bottom: 10px; font-size: 32px; }
+        .instructions { background: #222; border: 1px solid #444; padding: 15px; border-radius: 8px; max-width: 85%; margin-bottom: 25px; text-align: left; font-size: 15px; line-height: 1.5; }
+        .instructions ul { margin: 5px 0 0 0; padding-left: 20px; }
+        .instructions li { margin-bottom: 8px; }
+        .btn { padding: 12px 30px; font-size: 18px; font-weight: bold; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        #quizOverlay { position: absolute; top: 4px; left: 4px; width: 600px; height: 600px; background: rgba(20, 20, 30, 0.95); display: none; flex-direction: column; align-items: center; justify-content: center; padding: 30px; box-sizing: border-box; z-index: 20; }
+        #quizQuestion { font-size: 20px; font-weight: bold; margin-bottom: 20px; text-align: center; color: #ffeb3b; }
+        .quiz-option { width: 85%; padding: 12px; margin: 8px 0; background: #333; border: 2px solid #555; color: white; border-radius: 6px; cursor: pointer; text-align: left; font-size: 16px; transition: 0.2s; }
+        .quiz-option:hover { background: #444; border-color: #888; }
+        #quizFeedback { font-size: 18px; font-weight: bold; margin-top: 15px; height: 25px; }
+        #leaderboardOverlay { position: absolute; top: 4px; left: 4px; width: 600px; height: 600px; background: rgba(10, 10, 15, 0.95); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 30; padding: 20px; box-sizing: border-box; }
+        #leaderboardList { width: 70%; background: #222; border: 1px solid #444; padding: 15px; border-radius: 8px; margin: 15px 0; font-size: 18px; }
+        .leaderboard-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #333; }
+        #scoreForm { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 15px; }
+        #playerName { padding: 8px; font-size: 16px; text-align: center; border-radius: 4px; border: 1px solid #555; background: #333; color: white; }
+        .admin-panel { display: none; background: #c0392b; padding: 10px; border-radius: 5px; margin-top: 10px; font-size: 14px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <!-- Bővített információs sáv az IDŐZÍTŐNEK -->
+    <div id="info">Pontszám: <span id="score">0</span> | Életek: <span id="lives">3</span> | Idő: <span id="timer">60</span>s</div>
+    
+    <div id="game-container">
+        <div id="startScreen">
+            <h1>🧲 Mágneses Kvíz-Taszítás</h1>
+            <div class="instructions">
+                <strong>Hogyan kell játszani?</strong>
+                <ul>
+                    <li>🖱️ <strong>Irányítás:</strong> Mozgasd az egeret a mágnes forgatásához.</li>
+                    <li>⏱️ <strong>Időlimit:</strong> 60 másodperced van a legtöbb pontot megszerezni!</li>
+                    <li>🎯 <strong>A játék célja:</strong> Forgasd úgy a mágnest, hogy a feléje közeledő mágneses golyókat taszítsa el magától!</li>
+                    <li>📝 <strong>Kvíz:</strong> Hiba esetén jön a kérdés. Ha elrontod, értékes másodperceket veszítesz!</li>
+                </ul>
+            </div>
+            <button class="btn" onclick="startGame()">Játék indítása</button>
+        </div>
+
+        <div id="quizOverlay">
+            <div id="quizQuestion">Kérdés helye</div>
+            <button class="quiz-option" onclick="checkAnswer(0)">A</button>
+            <button class="quiz-option" onclick="checkAnswer(1)">B</button>
+            <button class="quiz-option" onclick="checkAnswer(2)">C</button>
+            <div id="quizFeedback"></div>
+        </div>
+
+        <div id="leaderboardOverlay">
+            <h2 style="color: #ffeb3b; margin: 0 0 5px 0;">🏆 Legjobb 5 Eredmény</h2>
+            <div id="scoreForm">
+                <input type="text" id="playerName" placeholder="Neved..." maxlength="12">
+                <button class="btn" style="padding: 6px 15px; font-size: 14px;" onclick="saveScoreToFirebase()">Mentés</button>
+            </div>
+            <div id="leaderboardList">Betöltés...</div>
+            
+            
+
+            <button class="btn" onclick="resetGame()">Új játék</button>
+        </div>
+
+        <canvas id="gameCanvas" width="600" height="600"></canvas>
+    </div>
+
+    <script>
+        // JAVÍTOTT, LEVÁGÁSBIZTOS EURÓPAI REALTIME DATABASE URL
+        const firebaseConfig = {
+            apiKey: "AIzaSyC4ypKsFziwbyOQ87Sb-1PrrIZcvLf1_xQ",
+            authDomain: "://firebaseapp.com",
+            databaseURL: "https://fizikadomino-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "fizikadomino",
+            storageBucket: "fizikadomino.firebasestorage.app",
+            messagingSenderId: "272119065201",
+            appId: "1:272119065201:web:c6bdc223fd9a61394f49d0",
+            measurementId: "G-6PNNLQV1GH"
+        };
+        
+        // Várjunk egy picit a betöltésre az aszinkron script miatt
+        setTimeout(() => {
+            if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+                database = firebase.database();
+            }
+        }, 500);
+        
+        let database;
+
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const scoreEl = document.getElementById("score");
+        const livesEl = document.getElementById("lives");
+        const timerEl = document.getElementById("timer");
+        const startScreen = document.getElementById("startScreen");
+        const quizOverlay = document.getElementById("quizOverlay");
+        const quizQuestionEl = document.getElementById("quizQuestion");
+        const optionBtns = document.querySelectorAll(".quiz-option");
+        const quizFeedbackEl = document.getElementById("quizFeedback");
+        const leaderboardOverlay = document.getElementById("leaderboardOverlay");
+        const leaderboardListEl = document.getElementById("leaderboardList");
+        const scoreFormEl = document.getElementById("scoreForm");
+        const playerNameInput = document.getElementById("playerName");
+        const adminPanel = document.getElementById("adminPanel");
+
+        let score = 0, lives = 3, gameActive = false, gameOver = false, quizActive = false, playerAngle = 0;
+        let enemies = [], particles = []; 
+        let spawnTimer = 0, spawnInterval = 100; 
+        let timeLeft = 60, gameTimerInterval = null;
+
+        const centerX = canvas.width / 2, centerY = canvas.height / 2;
+        const magnetLength = 90, magnetWidth = 24;
+
+        // BEÉPÍTETT HANGEFFEKT GENERÁTOR (Web Audio API)
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') { audioCtx.resume(); }
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+
+            if (type === 'hit') { 
+                osc.type = 'sine'; osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+            } else if (type === 'error') { 
+                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(120, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'win') { 
+                osc.type = 'triangle'; osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+            }
+        }
+
+		const quizBank = [
+            { q: "Milyen pólusai vannak egy állandó mágnesnek?", a: ["Északi és Déli", "Keleti és Nyugati", "Pozitív és Negatív"], correct: 0 },
+            { q: "Mit csinál két azonos mágneses pólus egymással?", a: ["Vonzák egymást", "Taszítják egymást", "Semmit sem csinálnak"], correct: 1 },
+            { q: "Melyik fém vonzható mágnessel?", a: ["Alumínium", "Réz", "Vas"], correct: 2 },
+            { q: "Mi történik, ha egy mágnest pontosan kettévágunk?", a: ["Két kisebb, kétpólusú mágnest kapunk", "Egy tiszta északi és egy tiszta déli pólust kapunk", "Elveszíti a mágnesességét"], correct: 0 },
+            { q: "Hogyan nevezzük a Föld körüli mágneses mezőt?", a: ["Atmoszféra", "Magnetoszféra", "Stratoszféra"], correct: 1 },
+            { q: "Meg lehet-e zavarni egy iránytűt egy darab lágyvassal, ha közel tesszük hozzá? ", a: ["Nem, mert a vasnak nncs mágneses mezője", "Igen, hiszen az iránytű egy mágnes, ami vonzza a vasat", "Igen, mert a lágyvas mágneses tere vonzza az iránytűt"], correct: 1 },
+            { q: "Hol a legerősebb egy hagyományos rúdmágnes mágneses mezője?", a: ["A mágnes alsó oldalán a gravitáció miatt", "A mágnes középpontjában a legerőssebb a mágneses mező", "A két pólus közelében"], correct: 2 },
+			{ q: "Melyik állatok tájékozódnak bizonyítottan a Föld mágneses mezeje alapján?", a: ["Vándormadarak", "Aranyhalak", "Házi macskák"], correct: 0 }
+        ];
+        let currentQuestionIndex = 0;
+
+        canvas.addEventListener("mousemove", (e) => {
+            if (!gameActive || gameOver || quizActive) return;
+            const rect = canvas.getBoundingClientRect();
+            playerAngle = Math.atan2(e.clientY - rect.top - centerY, e.clientX - rect.left - centerX);
+        });
+
+        function startGame() { 
+            startScreen.style.display = "none"; 
+            gameActive = true; 
+            timeLeft = 60;
+            timerEl.textContent = timeLeft;
+            
+            gameTimerInterval = setInterval(() => {
+                if (!quizActive && gameActive && !gameOver) {
+                    timeLeft--;
+                    timerEl.textContent = timeLeft;
+                    if (timeLeft <= 0) {
+                        handleGameOver();
+                    }
+                }
+            }, 1000);
+
+            animate(); 
+        }
+
+        function spawnEnemy() {
+            const spawnAngle = Math.random() * Math.PI * 2;
+            const distance = 350;
+            
+            // Kezdőpozíció a külső körön
+            const startX = centerX + Math.cos(spawnAngle) * distance;
+            const startY = centerY + Math.sin(spawnAngle) * distance;
+
+            // ÚJ: A golyók a mágnes valamelyik pólusa felé tartanak, nem a holttér (közép) felé
+            const targetAngle = playerAngle + (Math.random() > 0.5 ? 0 : Math.PI);
+            const targetX = centerX + Math.cos(targetAngle) * (magnetLength / 2);
+            const targetY = centerY + Math.sin(targetAngle) * (magnetLength / 2);
+
+            // Irányvektor számítása a kijelölt pólus felé
+            const dx = targetX - startX;
+            const dy = targetY - startY;
+            const angleToTarget = Math.atan2(dy, dx);
+
+            // Nehézség igazítása az új tizedelt pontszámhoz (score * 0.5 a korábbi 0.05 helyett)
+            const speed = 1.5 + Math.random() * 1.5 + (score * 0.5); 
+
+            enemies.push({
+                x: startX,
+                y: startY,
+                vx: Math.cos(angleToTarget) * speed,
+                vy: Math.sin(angleToTarget) * speed,
+                color: Math.random() > 0.5 ? "red" : "blue",
+                radius: 12
+            });
+        }
+
+        function createParticles(x, y, color) {
+            for (let i = 0; i < 12; i++) {
+                particles.push({ x, y, vx: (Math.random() - 0.5) * 5, vy: (Math.random() - 0.5) * 5, alpha: 1, color });
+            }
+        }
+
+        function triggerQuiz() {
+            quizActive = true;
+            quizFeedbackEl.textContent = "";
+            currentQuestionIndex = Math.floor(Math.random() * quizBank.length);
+            const qData = quizBank[currentQuestionIndex];
+            
+            quizQuestionEl.textContent = qData.q;
+            optionBtns.forEach((btn, index) => {
+                btn.textContent = qData.a[index];
+                btn.style.background = "#333";
+            });
+            quizOverlay.style.display = "flex";
+        }
+
+        function checkAnswer(selectedIndex) {
+            const qData = quizBank[currentQuestionIndex];
+            if (selectedIndex === qData.correct) {
+                quizFeedbackEl.textContent = "Helyes! Visszakaptad az életed! 🎉";
+                quizFeedbackEl.style.color = "#28a745";
+                playSound('win');
+                lives++; 
+                livesEl.textContent = lives;
+            } else {
+                quizFeedbackEl.textContent = "Hibás! -10 másodperc büntetés! ❌";
+                quizFeedbackEl.style.color = "#ff4757";
+                playSound('error');
+                timeLeft = Math.max(0, timeLeft - 10);
+                timerEl.textContent = timeLeft;
+            }
+
+            setTimeout(() => {
+                quizOverlay.style.display = "none";
+                quizActive = false;
+                if (lives <= 0 || timeLeft <= 0) {
+                    handleGameOver();
+                } else {
+                    animate(); 
+                }
+            }, 1500);
+        }
+
+        function handleGameOver() {
+            gameOver = true;
+            gameActive = false;
+            clearInterval(gameTimerInterval);
+            leaderboardOverlay.style.display = "flex";
+            scoreFormEl.style.display = "flex";
+           
+            playerNameInput.value = "";
+            loadLeaderboard();
+        }
+
+        function saveScoreToFirebase() {
+            if (!database) { alert("Az adatbázis még nem töltődött be!"); return; }
+            const name = playerNameInput.value.trim() || "Névtelen";
+            
+            // ÚJ: Mezőnevek átírva angolra (name, score)
+            database.ref("magneses_taszitas").push({
+                name: name,
+                score: score,
+                idobelyeg: firebase.database.ServerValue.TIMESTAMP
+            }).then(() => {
+                scoreFormEl.style.display = "none";
+                loadLeaderboard();
+            }).catch((error) => {
+                console.error("Hiba a mentés során: ", error);
+            });
+        }
+		function loadLeaderboard() {
+            if (!database) { leaderboardListEl.textContent = "Adatbázis hiba."; return; }
+            leaderboardListEl.textContent = "Betöltés...";
+            
+            // ÚJ: Lekérdezés a megváltozott "score" mező alapján
+            database.ref("magneses_taszitas")
+                .orderByChild("score")
+                .limitToLast(5)
+                .once("value", (snapshot) => {
+                    let rows = [];
+                    snapshot.forEach((childSnapshot) => { rows.push(childSnapshot.val()); });
+                    rows.reverse();
+                    leaderboardListEl.innerHTML = "";
+                    if (rows.length === 0) {
+                        leaderboardListEl.textContent = "Még nincs mentett eredmény.";
+                        return;
+                    }
+                    rows.forEach((row, index) => {
+                        const div = document.createElement("div");
+                        div.className = "leaderboard-row";
+                        // ÚJ: Megváltozott objektum kulcsok kezelése (name és score)
+                        div.innerHTML = `<span>${index + 1}. ${row.name || "Névtelen"}</span><strong>${row.score || 0} pont</strong>`;
+                        leaderboardListEl.appendChild(div);
+                    });
+                });
+        }
+
+       
+
+        
+
+        function resetGame() {
+            clearInterval(gameTimerInterval);
+            score = 0; lives = 3; timeLeft = 60; gameOver = false; gameActive = true; quizActive = false;
+            enemies = []; particles = []; spawnInterval = 100;
+            scoreEl.textContent = score; livesEl.textContent = lives; timerEl.textContent = timeLeft;
+            quizOverlay.style.display = "none";
+            leaderboardOverlay.style.display = "none";
+            
+            gameTimerInterval = setInterval(() => {
+                if (!quizActive && gameActive && !gameOver) {
+                    timeLeft--;
+                    timerEl.textContent = timeLeft;
+                    if (timeLeft <= 0) { handleGameOver(); }
+                }
+            }, 1000);
+
+            animate();
+        }
+
+        function animate() {
+            if (!gameActive || gameOver || quizActive) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = "#2a2a2a"; ctx.lineWidth = 1;
+            for(let i = 0; i < canvas.width; i += 40) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
+            }
+
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(playerAngle);
+            ctx.fillStyle = "red"; ctx.fillRect(0, -magnetWidth/2, magnetLength/2, magnetWidth);
+            ctx.fillStyle = "white"; ctx.font = "bold 14px Arial"; ctx.fillText("N", magnetLength/4 - 5, 5);
+            ctx.fillStyle = "blue"; ctx.fillRect(-magnetLength/2, -magnetWidth/2, magnetLength/2, magnetWidth);
+            ctx.fillStyle = "white"; ctx.fillText("S", -magnetLength/4 - 5, 5);
+            ctx.restore();
+
+            const redEndX = centerX + Math.cos(playerAngle) * (magnetLength / 2);
+            const redEndY = centerY + Math.sin(playerAngle) * (magnetLength / 2);
+            const blueEndX = centerX - Math.cos(playerAngle) * (magnetLength / 2);
+            const blueEndY = centerY - Math.sin(playerAngle) * (magnetLength / 2);
+
+            spawnTimer++;
+            if (spawnTimer >= spawnInterval) { spawnEnemy(); spawnTimer = 0; if (spawnInterval > 35) spawnInterval -= 1; }
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                e.x += e.vx; e.y += e.vy;
+
+                ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2); ctx.fillStyle = e.color; ctx.fill(); ctx.closePath();
+
+                const distToRed = Math.hypot(e.x - redEndX, e.y - redEndY);
+                const distToBlue = Math.hypot(e.x - blueEndX, e.y - blueEndY);
+
+                if (distToRed < e.radius + 12 || distToBlue < e.radius + 12) {
+                    const closestToRed = distToRed < distToBlue;
+                    const hitPoleColor = closestToRed ? "red" : "blue";
+
+                    if (e.color === hitPoleColor) {
+                        score += 1; // ÚJ: 1 pont jár 10 helyett (tizedelés)
+                        scoreEl.textContent = score;
+                        createParticles(e.x, e.y, e.color);
+                        playSound('hit'); 
+                    } else {
+                        lives--; livesEl.textContent = lives;
+                        createParticles(e.x, e.y, "orange");
+                        playSound('error'); 
+                        enemies.splice(i, 1);
+                        triggerQuiz();
+                        return; 
+                    }
+                    enemies.splice(i, 1);
+                }
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i]; p.x += p.vx; p.y += p.vy; p.alpha -= 0.02;
+                if (p.alpha <= 0) { particles.splice(i, 1); continue; }
+                ctx.save(); ctx.globalAlpha = p.alpha; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill(); ctx.restore();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        
+    </script>
+</body>
+</html>F
